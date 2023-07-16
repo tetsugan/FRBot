@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.6.12;
+
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Factory.sol";
+import "@uniswap/lib/contracts/libraries/TransferHelper.sol";
+
+import "@chainlink/contracts/src/v0.6/interfaces/AggregatorV3Interface.sol";
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract UniswapFrontrunBot is ReentrancyGuard {
+
+  using SafeMath for uint;
+
+  IUniswapV2Factory public uniswapFactory;
+  address public weth;
+
+  AggregatorV3Interface public priceFeed;
+  
+  event NewPair(address indexed pair);
+
+  constructor(address _uniswapFactory, address _weth, address _priceFeed) public {
+    uniswapFactory = IUniswapV2Factory(_uniswapFactory);
+    weth = _weth;
+    priceFeed = AggregatorV3Interface(_priceFeed);
+  }
+
+  function handleNewPair(address pair) external nonReentrant {
+
+    // Estimate prices
+    (uint reserve0, uint reserve1,) = IUniswapV2Pair(pair).getReserves();
+    (address token0,) = UniswapV2Library.sortTokens(pair, weth);
+    uint price0 = getPrice(token0);
+    uint price1 = getPrice(weth);
+
+    // Calculate optimal amount to swap
+    uint amountIn = calculateOptimalAmountIn(reserve0, reserve1, price0, price1);
+    
+    // Get required flash loan
+    uint loanAmount = 2 * amountIn;
+    IERC20(weth).flashLoan(loanAmount);
+
+    // Perform arbitrage
+    uint amountReceived = uniswapSwap(token0, amountIn, weth);
+
+    // Pay back flash loan
+    TransferHelper.safeTransfer(weth, msg.sender, loanAmount);
+
+    // Keep profit
+    uint profit = amountReceived - amountIn; 
+    TransferHelper.safeTransfer(weth, address(this), profit);
+    
+    emit NewPair(pair);
+  }
+
+  function getPrice(address token) internal view returns (uint) {
+    // Get price from Chainlink price feed
+    (,int price,,,) = priceFeed.latestRoundData(); 
+    return uint(price);
+  }
+
+  function calculateOptimalAmountIn() internal pure returns (uint) {
+    // Implementation
+  }
+
+  function uniswapSwap(address tokenIn, uint amountIn, address tokenOut) internal returns (uint) {
+     // Swap tokens
+  }
+
+}
